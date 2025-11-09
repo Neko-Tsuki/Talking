@@ -1,24 +1,91 @@
-name: ci
+name: autogreen-random-schedule
 
 on:
-  push:
-    branches:
-      - master
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 0 * * *" # 每天 00:00 UTC 触发，生成当天随机时间点
+  workflow_dispatch:
 
 jobs:
-  autogreen:
+  generate-and-run:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Auto green
+      - name: Configure git
         run: |
           git config --local user.email "kgrhokori@outlook.com"
           git config --local user.name "Kitamori"
           git remote set-url origin https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-          git pull --rebase
-          git commit --allow-empty -m "a commit a day keeps your girlfriend away"
-          git push
+
+      - name: Generate random schedule for today
+        id: gen
+        run: |
+          # 生成 1-5 个不重复的随机小时和分钟（UTC）
+          COUNT=$(( (RANDOM % 5) + 1 ))
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          TIMES=()
+          i=0
+          while [ ${#TIMES[@]} -lt $COUNT ]; do
+            H=$(( RANDOM % 24 ))
+            M=$(( RANDOM % 60 ))
+            T=$(printf "%02d:%02d" $H $M)
+            # 保证唯一并按时间排序
+            skip=0
+            for e in "${TIMES[@]}"; do
+              if [ "$e" = "$T" ]; then skip=1; break; fi
+            done
+            if [ $skip -eq 0 ]; then TIMES+=("$T"); fi
+          done
+          IFS=$'\n' sorted=($(sort <<<"${TIMES[*]}"))
+          unset IFS
+          SCHEDULE=$(printf "%s\n" "${sorted[@]}")
+          echo "schedule<<EOF" >> $GITHUB_OUTPUT
+          echo "$SCHEDULE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Generated $COUNT times:"
+          echo "$SCHEDULE"
+
+      - name: Save schedule file
+        run: |
+          echo "${{ steps.gen.outputs.schedule }}" > /tmp/times.txt
+          cat /tmp/times.txt
+
+      - name: Run commits at scheduled times
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 读取时间点列表（格式 HH:MM，每行）
+          TIMES_FILE=/tmp/times.txt
+          TIMES=( )
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            TIMES+=("$line")
+          done < "$TIMES_FILE"
+
+          echo "Will run commits at: ${TIMES[*]} (UTC)"
+          # helper：计算现在到目标时间的秒数（若在当天已过则跳过）
+          now_epoch=$(date -u +%s)
+          for t in "${TIMES[@]}"; do
+            target_epoch=$(date -u -d "$(date -u +%Y-%m-%d)T${t}:00Z" +%s)
+            if [ "$target_epoch" -le "$now_epoch" ]; then
+              echo "Time $t already passed, skipping."
+              continue
+            fi
+            wait_secs=$(( target_epoch - now_epoch ))
+            echo "Sleeping $wait_secs seconds until $t UTC"
+            sleep $wait_secs
+
+            # 在约定文件追加随机内容并提交
+            MSG="autogreen-$(date -u +"%Y%m%dT%H%M%SZ")-$RANDOM"
+            echo "$MSG" >> .autogreen || true
+            git add .autogreen
+            git commit -m "$MSG" || echo "No changes to commit"
+            git push origin HEAD:master || echo "Push failed"
+
+            # 更新 now_epoch 为下次循环参考
+            now_epoch=$(date -u +%s)
+            # 小随机延迟，避免瞬时并发问题
+            sleep $(( (RANDOM % 30) + 5 ))
+          done
