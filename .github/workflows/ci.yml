@@ -1,91 +1,43 @@
-name: autogreen-random-schedule
+name: autogreen-generate
 
 on:
   schedule:
-    - cron: "0 0 * * *" # 每天 00:00 UTC 触发，生成当天随机时间点
+    - cron: "0 0 * * *" # daily 00:00 UTC
   workflow_dispatch:
 
 jobs:
-  generate-and-run:
+  generate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure git
-        run: |
-          git config --local user.email "kgrhokori@outlook.com"
-          git config --local user.name "Kitamori"
-          git remote set-url origin https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-
-      - name: Generate random schedule for today
+      - uses: actions/checkout@v4
+      - name: Generate random times (UTC)
         id: gen
         run: |
-          # 生成 1-5 个不重复的随机小时和分钟（UTC）
           COUNT=$(( (RANDOM % 5) + 1 ))
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
           TIMES=()
-          i=0
           while [ ${#TIMES[@]} -lt $COUNT ]; do
             H=$(( RANDOM % 24 ))
             M=$(( RANDOM % 60 ))
             T=$(printf "%02d:%02d" $H $M)
-            # 保证唯一并按时间排序
             skip=0
             for e in "${TIMES[@]}"; do
               if [ "$e" = "$T" ]; then skip=1; break; fi
             done
-            if [ $skip -eq 0 ]; then TIMES+=("$T"); fi
+            [ $skip -eq 0 ] && TIMES+=("$T")
           done
           IFS=$'\n' sorted=($(sort <<<"${TIMES[*]}"))
           unset IFS
-          SCHEDULE=$(printf "%s\n" "${sorted[@]}")
-          echo "schedule<<EOF" >> $GITHUB_OUTPUT
-          echo "$SCHEDULE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "Generated $COUNT times:"
-          echo "$SCHEDULE"
-
-      - name: Save schedule file
-        run: |
-          echo "${{ steps.gen.outputs.schedule }}" > /tmp/times.txt
-          cat /tmp/times.txt
-
-      - name: Run commits at scheduled times
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # 读取时间点列表（格式 HH:MM，每行）
-          TIMES_FILE=/tmp/times.txt
-          TIMES=( )
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            TIMES+=("$line")
-          done < "$TIMES_FILE"
-
-          echo "Will run commits at: ${TIMES[*]} (UTC)"
-          # helper：计算现在到目标时间的秒数（若在当天已过则跳过）
-          now_epoch=$(date -u +%s)
-          for t in "${TIMES[@]}"; do
-            target_epoch=$(date -u -d "$(date -u +%Y-%m-%d)T${t}:00Z" +%s)
-            if [ "$target_epoch" -le "$now_epoch" ]; then
-              echo "Time $t already passed, skipping."
-              continue
-            fi
-            wait_secs=$(( target_epoch - now_epoch ))
-            echo "Sleeping $wait_secs seconds until $t UTC"
-            sleep $wait_secs
-
-            # 在约定文件追加随机内容并提交
-            MSG="autogreen-$(date -u +"%Y%m%dT%H%M%SZ")-$RANDOM"
-            echo "$MSG" >> .autogreen || true
-            git add .autogreen
-            git commit -m "$MSG" || echo "No changes to commit"
-            git push origin HEAD:master || echo "Push failed"
-
-            # 更新 now_epoch 为下次循环参考
-            now_epoch=$(date -u +%s)
-            # 小随机延迟，避免瞬时并发问题
-            sleep $(( (RANDOM % 30) + 5 ))
+          mkdir -p .github
+          echo '{ "date": "'$(date -u +%Y-%m-%d)'", "times": [' > .github/autogreen-schedule.json
+          first=1
+          for t in "${sorted[@]}"; do
+            if [ $first -eq 1 ]; then first=0; else echo ',' >> .github/autogreen-schedule.json; fi
+            echo -n "  {\"time\":\"$t\",\"done\":false}" >> .github/autogreen-schedule.json
           done
+          echo '' >> .github/autogreen-schedule.json
+          echo '] }' >> .github/autogreen-schedule.json
+          git add .github/autogreen-schedule.json
+          git commit -m "chore(autogreen): generate today's schedule" || echo "no changes"
+          git push origin HEAD:master || echo "push failed"
+          echo "Generated schedule:"
+          cat .github/autogreen-schedule.json
