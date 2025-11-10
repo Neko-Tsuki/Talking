@@ -5,11 +5,22 @@ on:
     - cron: "0 0 * * *" # daily 00:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Git identity
+        run: |
+          git config --global user.name "Kitamori"
+          git config --global user.email "kgrhokori@outlook.com"
+
       - name: Generate random times (UTC)
         id: gen
         run: |
@@ -36,8 +47,7 @@ jobs:
           done
           echo '' >> .github/autogreen-schedule.json
           echo '] }' >> .github/autogreen-schedule.json
+
           git add .github/autogreen-schedule.json
           git commit -m "chore(autogreen): generate today's schedule" || echo "no changes"
           git push origin HEAD:master || echo "push failed"
-          echo "Generated schedule:"
-          cat .github/autogreen-schedule.json
