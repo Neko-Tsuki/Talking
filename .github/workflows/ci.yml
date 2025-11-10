@@ -2,7 +2,7 @@ name: autogreen-generate
 
 on:
   schedule:
-    - cron: "0 0 * * *" # daily 00:00 UTC
+    - cron: "0 0 * * *" # 每天 00:00 UTC
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,8 @@ jobs:
 
       - name: Generate random times (UTC)
         id: gen
+        env:
+          TOKEN: ${{ secrets.MY_TOKEN }}
         run: |
           COUNT=$(( (RANDOM % 5) + 1 ))
           TIMES=()
@@ -50,4 +52,7 @@ jobs:
 
           git add .github/autogreen-schedule.json
           git commit -m "chore(autogreen): generate today's schedule" || echo "no changes"
+          
+          git remote set-url origin "https://${{ github.actor }}:${TOKEN}@github.com/${{ github.repository }}"
+
           git push origin HEAD:master || echo "push failed"
