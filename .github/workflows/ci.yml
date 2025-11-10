@@ -19,7 +19,7 @@ jobs:
       - name: Set up Git identity
         run: |
           git config --global user.name "Kitamori"
-          git config --global user.email "kgrhokori@outlook.com"
+          git config --global user.email "langlede233@gmail.com"
 
       - name: Generate random times (UTC)
         id: gen
