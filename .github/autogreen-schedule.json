@@ -1,6 +1,3 @@
-{ "date": "2025-11-30", "times": [
-  {"time":"05:27","done":false},
-  {"time":"08:21","done":false},
-  {"time":"08:58","done":false},
-  {"time":"19:47","done":false}
+{ "date": "2025-12-01", "times": [
+  {"time":"16:55","done":false}
 ] }
