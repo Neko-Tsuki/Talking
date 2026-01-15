@@ -1,5 +1,4 @@
-{ "date": "2026-01-14", "times": [
-  {"time":"07:18","done":false},
-  {"time":"11:00","done":false},
-  {"time":"18:43","done":false}
+{ "date": "2026-01-15", "times": [
+  {"time":"02:19","done":false},
+  {"time":"06:17","done":false}
 ] }
